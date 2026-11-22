@@ -1,0 +1,42 @@
+name: Verify RustNet package capture
+on:
+  push:
+    branches: [test/rustnet-capture]
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04-arm, config: linux_aarch64 }
+          - { runner: macos-15-intel, config: osx64 }
+          - { runner: macos-15, config: osx_arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39
+        with:
+          environment-name: builder
+          create-args: -c conda-forge rattler-build
+      - name: Build and install in a fresh environment
+        shell: bash -el {0}
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            export CONDA_BUILD_SYSROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          fi
+          rattler-build build -r recipes/rustnet -m .ci_support/${{ matrix.config }}.yaml --variant rust_compiler=rust --output-dir "$RUNNER_TEMP/channel"
+          micromamba create -y -p "$RUNNER_TEMP/installed" -c "file://$RUNNER_TEMP/channel" -c conda-forge rustnet=1.7.0
+          "$RUNNER_TEMP/installed/bin/rustnet" --version
+      - name: Capture loopback UDP with the installed binary
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/domcyrus/rustnet/e7e1f754bfa3c56b2b834d422e4aaab9f6e80c85/scripts/test-package-capture.py -o "$RUNNER_TEMP/capture.py"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo unshare --net bash -ec 'ip link set lo up && python3 "$1" "$2" lo' _ "$RUNNER_TEMP/capture.py" "$RUNNER_TEMP/installed/bin/rustnet"
+          else
+            sudo chgrp "$(id -gn)" /dev/bpf*
+            sudo chmod g+rw /dev/bpf*
+            python3 "$RUNNER_TEMP/capture.py" "$RUNNER_TEMP/installed/bin/rustnet" lo0
+          fi
