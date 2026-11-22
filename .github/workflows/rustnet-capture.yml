@@ -36,6 +36,8 @@ jobs:
           if [[ "$RUNNER_OS" == Linux ]]; then
             sudo unshare --net bash -ec 'ip link set lo up && python3 "$1" "$2" lo' _ "$RUNNER_TEMP/capture.py" "$RUNNER_TEMP/installed/bin/rustnet"
           else
+            otool -L "$RUNNER_TEMP/installed/bin/rustnet" | grep -F /usr/lib/libpcap
+            export TMPDIR=/private/tmp
             sudo chgrp "$(id -gn)" /dev/bpf*
             sudo chmod g+rw /dev/bpf*
             python3 "$RUNNER_TEMP/capture.py" "$RUNNER_TEMP/installed/bin/rustnet" lo0
